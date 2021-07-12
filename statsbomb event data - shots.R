@@ -17,6 +17,7 @@ library(tidylog)
 library(ggsoccer)
 library(viridis)
 library(ggforce)
+library(glue)
 
 
 allcomps <- FreeCompetitions()
@@ -149,7 +150,6 @@ uclfinal_lu_ext %>%
 # top-line match data (date, teams)
 glimpse(uclfinal_m)
 
-library(glue)
 uclfinal_m_ext <- uclfinal_m %>%
   mutate(season = season.season_name) %>%
   mutate(teams = glue("{home_team.home_team_name} vs {away_team.away_team_name}")) %>%

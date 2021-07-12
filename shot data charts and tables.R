@@ -39,7 +39,22 @@ cols = gg_color_hue(n)
 
 
 # total & avg number of shots per game - bar chart
+uclfs_tot <-
+
 uclfinal_shots %>%
+	filter(period < 5) %>%
+	count(season,period)
+
+uclfs_avgseas <-
+	uclfinal_shots %>%
+	filter(period < 3) %>%
+	count(season)
+	group_by(season) %>%
+	summarise(avg_shot_seas = mean(season, na.rm = TRUE))
+
+
+uclfs_avgtot <-
+	uclfinal_shots %>%
 	filter(period < 3) %>%
 	count(season,period) %>%
 	group_by(period) %>%
