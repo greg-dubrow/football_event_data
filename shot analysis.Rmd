@@ -1,0 +1,163 @@
+---
+title: |
+    | Am I Throwing Away My Shot?: 
+    | *a UCL Finals shot analysis using StasBomb data* 
+author: "greg dubrow"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "images/",
+  out.width = "100%")
+```
+
+
+As I write this the semi-final and final matches of the UEFA European Championships ("the Euros") are imminent. First up on July 6 Spain play Italy, and then on July 7 my homeland Denmark play England. (hint, I rooted for Denmark...update, they won/lost). The Euro trophy is like the World Cup, a quadrennial competittion, but just for European countries (and some countries technically in Asia but for various reasons end up in the UEFA purview of regional world football confederations).
+
+Probably the second most prestigous trophy UEFA gives out is an annual club team competition called the Champions League (UCL). Originally a competition just for league champions, it has morphed to accomodate the top 1-4 teams from the top tiers of European leagues. 
+
+StatsBomb (a private sports data company) collects scads of match data across just about every major football competition in the world. Thankfully they've made some of their data available for free (hey Opta & other companies...you could too). I've long wanted to explore detailed match data and decided to start by looking at the availble UCL finals. I'm using the `StatsBombR` package which provides a helpful API wrapper to get the data.
+
+By the way, from here on in `football` = `soccer`, `pitch` = `field`. 
+
+For this first foray I've decided to look at shots. Every play on the pitch has a tag as to what type play it is (pass, carry, shot, etc), so as you can see form the code below, after pulling all event data I created a dataset of just the shots.
+
+How did I get it? Well, first we'll load the packages used for the analysis.
+
+```{r pkg load, message=FALSE, ECHO = FALSE, warning=FALSE}
+library(tidyverse) # all the tidyverse things I need...dplyr, ggplot, etc.
+library(StatsBombR) # gets the match data
+library(tidylog) # code diagnostics
+library(patchwork) # helps compose multiple ggplots
+library(ggsoccer) # helps build a football pitch
+library(ggforce)
+```
+
+```{r dataload1, message=FALSE, echo = FALSE, include = FALSE}
+uclfinal_shots <- readRDS("data/uclfinal_shots.rds")
+uclfinal_event <- readRDS("data/uclfinal_event.rds")
+uclfinal_lineup <- readRDS("data/uclfinal_lineup.rds")
+```
+First things we do are get all free competition and match data so we can get and augment the event data. At the moment StatsBomb have free data for a number of La Liga seaons, the most recent men's and women's World Cups, among others. We'll focus here on the Champions League.
+```{r ECHO = FALSE, eval=FALSE}
+# get all copmpe
+allcomps <- FreeCompetitions()
+
+uclfinal_c <- allcomps %>%
+  filter(competition_name == "Champions League")
+
+# get UCL match data (date, location, score, managers, referees)
+uclfinal_m <- FreeMatches(uclfinal_c)
+
+# gets event data for UCL matches
+uclfinal_e <- StatsBombFreeEvents(MatchesDF = uclfinal_m, Parallel = T)
+
+  # use StatsBombR native clean function to clean data, expand nested list items
+uclfinal_e <- allclean(uclfinal_e)
+```
+
+For the analysis I wanted to include more player and match info with the event data. So I created a player dataset that I eventually merged back with the shot data from the events file.
+```{r ECHO = FALSE, eval=FALSE}
+### get lineup, player position data, minutes played
+ # position data 
+uclfinal_p <- get.positioncategory(uclfinal_e) %>%
+  rename(player_id = player.id) %>%
+  filter(!is.na(player_id))
+
+# minutes played
+uclfinal_mp <- get.minutesplayed(uclfinal_e) %>%
+  rename(player_id = player.id)
+glimpse(uclfinal_mp)
+
+# select match info
+uclfinal_m2 <- uclfinal_m %>%
+  select(match_id, match_date, season = season.season_name,
+         home_score, away_score)
+
+# lineup - join with position & minutes & match info
+uclfinal_lu1 <- StatsBombFreeLineups(MatchesDF = uclfinal_m, Parallel = T)
+uclfinal_lu <- cleanlineups(uclfinal_lu1) %>%
+  mutate(player_nickname = ifelse(is.na(player_nickname), player_name, player_nickname)) %>%
+  left_join(uclfinal_p) %>%
+  left_join(uclfinal_mp) %>%
+  left_join(uclfinal_m2) %>%
+	left_join(uclfinal_p)
+
+```
+
+Here we create the shot dataset, marge back in with some of the player data (the position data here is slightly less detailed than in event data) and match data.
+
+```{r ECHO = FALSE, eval=FALSE}
+uclfinal_lu_ext <- uclfinal_lu %>%
+  select(player.id = player_id, player_nickname, jersey_number, TypicalPosition,
+         player_country = country.name)
+
+# get shot data from events, match with player data
+uclfinal_shots <- uclfinal_e %>%
+  filter(type.name == "Shot") %>%
+  mutate(period = as.integer(period)) %>%
+  mutate(halfminute = case_when(period == 1L ~ minute,
+                                period == 2L ~ (minute - 45L),
+                                period == 3L ~ (minute - 90L),
+                                period == 4L ~ (minute - 105L),
+                                TRUE ~ minute)) %>%
+  mutate(shot.body_part2 = case_when(shot.body_part.name %in% c("Left Foot", "Right Foot") ~ "Foot",
+                                     TRUE ~ shot.body_part.name)) %>%
+  select(match_id, period, minute, second, halfminute, timestamp, duration,
+         team.id, team.name, player.id, player.name, position.name,
+         shot.type.name, shot.body_part.name, shot.body_part2,
+         shot.first_time, shot.aerial_won, shot.open_goal,
+         shot.deflected, shot.technique.name, shot.outcome.name,
+         shot.statsbomb_xg, location.x, location.y, shot.end_location.x, shot.end_location.y, 
+  			 shot.end_location.z, play_pattern.name, DistToGoal:avevelocity) %>%
+  left_join(uclfinal_lu_ext) %>%
+  left_join(uclfinal_t)
+```
+
+Now it's time for some analysis. First I wanted to see if goal opportunities and goals themselves were more likely to happen at certain points in a match. With 10 
+
+```{r fig.width=7.5, fig.height=4.0, dpi = 300, ECHO = FALSE, warning=FALSE, message=FALSE}
+xgbymin1 <-
+uclfinal_shots %>%
+	filter(period == 1) %>%
+	filter(shot.type.name != "Penalty") %>%
+	mutate(goal = ifelse(shot.outcome.name == "Goal", "Goal", "No Goal")) %>%
+	ggplot(aes(x = minute, y = shot.statsbomb_xg, color = goal)) +
+	geom_point() +
+	geom_smooth() +
+	annotate("text", x = 5, y = 0.77, label = "1st half") +
+	scale_x_continuous(limits = c(0, 50),
+		breaks = seq(0, 45, by = 5)) +
+	scale_y_continuous(limits = c(-0.025, 0.8)) +
+	labs(x = "", y = "") +
+	theme_minimal() +
+	theme(legend.position = "none")
+
+xgbymin2 <-
+	uclfinal_shots %>%
+	filter(period == 2) %>%
+	filter(shot.type.name != "Penalty") %>%
+	mutate(goal = ifelse(shot.outcome.name == "Goal", "Goal", "No Goal")) %>%
+	ggplot(aes(x = minute, y = shot.statsbomb_xg, color = goal)) +
+	geom_point() +
+	geom_smooth() +
+	annotate("text", x = 92, y = 0.77, label = "2nd half") +
+	scale_x_continuous(limits = c(45, 100),
+										 breaks = seq(45, 90, by = 5)) +
+	scale_y_continuous(limits = c(-0.025, 0.8), labels = NULL) +
+	labs(x = "", y = "")+
+	theme_minimal() +
+	theme(legend.position = "none")
+
+
+xgbymin <- xgbymin1 + xgbymin2 +
+	plot_annotation(title = "xG Value by Minute", subtitle = "Goals in orange",
+										theme = theme(plot.subtitle = element_text(colour = "#F8766D")))
+
+xgbymin
+```
+
